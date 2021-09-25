@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 )
 
 type Tree struct {
@@ -33,8 +34,6 @@ type treeTestResult struct {
 }
 
 func Run(maxDepth int) {
-	res := make(chan *treeTestResult)
-
 	var longLivedTree *Tree
 	lltRes := make(chan *Tree)
 
@@ -56,62 +55,62 @@ func Run(maxDepth int) {
 		close(r)
 	}(lltRes)
 
-	var goroutines int
-
 	var tasks []*Task
-	
+	tasks = append(tasks, NewTask(
+		// Create binary tree of depth maxDepth+1, compute its Count and set the
+		// first position of the outputBuffer with its statistics.
+		func() *treeTestResult {
+			tree := NewTree(maxDepth + 1)
+			msg := fmt.Sprintf("stretch tree of depth %d\t check: %d",
+				maxDepth+1,
+				tree.Count())
 
-
-	pool := NewPool()
-
-	// Create binary tree of depth maxDepth+1, compute its Count and set the
-	// first position of the outputBuffer with its statistics.
-	goroutines++
-	go func(r chan<- *treeTestResult) {
-		tree := NewTree(maxDepth + 1)
-		msg := fmt.Sprintf("stretch tree of depth %d\t check: %d",
-			maxDepth+1,
-			tree.Count())
-
-		r <- &treeTestResult{
-			index: 0,
-			msg:   msg,
-		}
-	}(res)
+			return &treeTestResult{
+				index: 0,
+				msg:   msg,
+			}
+		},
+	))
 
 	// Create a lot of binary trees, of depths ranging from minDepth to maxDepth,
 	// compute and tally up all their Count and record the statistics.
 	for depth := minDepth; depth <= maxDepth; depth += 2 {
-		goroutines++
 		iterations := 1 << (maxDepth - depth + minDepth)
 		outCurr++
+		ix := outCurr
+		dep := depth
 
-		go func(depth, iterations, index int, r chan<- *treeTestResult) {
-			acc := 0
-			for i := 0; i < iterations; i++ {
-				// Create a binary tree of depth and accumulate total counter with its node count.
-				a := NewTree(depth)
-				acc += a.Count()
-			}
-			msg := fmt.Sprintf("%d\t trees of depth %d\t check: %d",
-				iterations,
-				depth,
-				acc)
+		tasks = append(tasks, NewTask(
+			// Create binary tree of depth maxDepth+1, compute its Count and set the
+			// first position of the outputBuffer with its statistics.
+			func() *treeTestResult {
+				acc := 0
+				for i := 0; i < iterations; i++ {
+					// Create a binary tree of depth and accumulate total counter with its node count.
+					a := NewTree(dep)
+					acc += a.Count()
+				}
+				msg := fmt.Sprintf("%d\t trees of depth %d\t check: %d",
+					iterations,
+					dep,
+					acc)
 
-			r <- &treeTestResult{
-				index: index,
-				msg: msg,
-			}
-		}(depth, iterations, outCurr, res)
+				return &treeTestResult{
+					index: ix,
+					msg:   msg,
+				}
+			},
+		))
 	}
 
-	for i := 0; i < goroutines; i++ {
-		ir := <- res
-		outBuff[ir.index] = ir.msg
+	pool := NewPool(tasks, runtime.NumCPU())
+
+	for _, r := range pool.Run() {
+		outBuff[r.index] = r.msg
 	}
 
 	// Compute the checksum of the long-lived binary tree that we created earlier and store its statistics.
-	longLivedTree = <- lltRes
+	longLivedTree = <-lltRes
 	msg := fmt.Sprintf("long lived tree of depth %d\t check: %d",
 		maxDepth,
 		longLivedTree.Count())
@@ -122,4 +121,3 @@ func Run(maxDepth int) {
 		fmt.Println(m)
 	}
 }
-

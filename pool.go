@@ -4,14 +4,12 @@ import "sync"
 
 // Task encapsulates a work item that should go in a work pool
 type Task struct {
-	Name string
 	f    func() *treeTestResult
 }
 
 // NewTask initializes a new task
-func NewTask(name string, f func() *treeTestResult) *Task {
+func NewTask(f func() *treeTestResult) *Task {
 	return &Task{
-		Name: name,
 		f:    f,
 	}
 }
@@ -50,10 +48,13 @@ func (p *Pool) Run() []*treeTestResult {
 	}
 
 	// send tasks to channel
+	p.wg.Add(len(p.Tasks))
 	for _, task := range p.Tasks {
 		p.tasksChan <- task
 	}
 	close(p.tasksChan)
+
+	p.wg.Wait()
 
 	// get results
 	var results []*treeTestResult
